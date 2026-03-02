@@ -30,10 +30,9 @@ from shelfmark.core.logger import setup_logger
 from shelfmark.core.models import SearchFilters, QueueStatus
 from shelfmark.core.prefix_middleware import PrefixMiddleware
 from shelfmark.core.auth_modes import (
-    determine_auth_mode,
     get_auth_check_admin_status,
-    has_local_password_admin,
     is_settings_or_onboarding_path,
+    load_active_auth_mode,
     requires_admin_for_settings_access,
 )
 from shelfmark.core.cwa_user_sync import upsert_cwa_user
@@ -52,6 +51,12 @@ from shelfmark.core.requests_service import (
 )
 from shelfmark.core.activity_service import ActivityService, build_download_item_key
 from shelfmark.core.notifications import NotificationContext, NotificationEvent, notify_admin, notify_user
+from shelfmark.core.request_helpers import (
+    coerce_bool,
+    extract_release_source_id,
+    load_users_request_policy_settings,
+    normalize_optional_text,
+)
 from shelfmark.core.utils import normalize_base_path
 from shelfmark.api.websocket import ws_manager
 
@@ -74,12 +79,13 @@ if BASE_PATH:
 # We run this app under Gunicorn with a gevent websocket worker (even when DEBUG=true),
 # so Socket.IO should always use gevent here.
 async_mode = 'gevent'
+socketio_cors_allowed_origins = "*" if DEBUG else None
 
 # Initialize Flask-SocketIO with reverse proxy support
 socketio_path = f"{BASE_PATH}/socket.io" if BASE_PATH else "/socket.io"
 socketio = SocketIO(
     app,
-    cors_allowed_origins="*",
+    cors_allowed_origins=socketio_cors_allowed_origins,
     async_mode=async_mode,
     logger=False,
     engineio_logger=False,
@@ -99,6 +105,7 @@ socketio = SocketIO(
 ws_manager.init_app(app, socketio)
 ws_manager.set_queue_status_fn(backend.queue_status)
 logger.info(f"Flask-SocketIO initialized with async_mode='{async_mode}'")
+logger.info("Socket.IO CORS allowed origins: %s", socketio_cors_allowed_origins)
 
 # Ensure all plugins are loaded before starting the download coordinator.
 # This prevents a race condition where the download loop could try to process
@@ -213,38 +220,7 @@ def get_auth_mode() -> str:
     Uses configured AUTH_METHOD plus runtime prerequisites.
     Returns "none" when config is invalid or unavailable.
     """
-    from shelfmark.core.settings_registry import load_config_file
-
-    try:
-        security_config = load_config_file("security")
-        return determine_auth_mode(
-            security_config,
-            CWA_DB_PATH,
-            has_local_admin=has_local_password_admin(user_db),
-        )
-    except Exception:
-        return "none"
-
-
-def _load_users_request_policy_settings() -> dict[str, Any]:
-    """Load global request policy settings from users config."""
-    from shelfmark.core.settings_registry import load_config_file
-
-    return load_config_file("users")
-
-
-def _as_bool(value: Any, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off", ""}:
-            return False
-    return bool(value)
+    return load_active_auth_mode(CWA_DB_PATH, user_db=user_db)
 
 
 _AUDIOBOOK_CATEGORY_RANGE = (3030, 3049)
@@ -331,7 +307,7 @@ def _resolve_policy_mode_for_current_user(*, source: Any, content_type: Any) -> 
     if user_db is None:
         return None
 
-    global_settings = _load_users_request_policy_settings()
+    global_settings = load_users_request_policy_settings()
     db_user_id = session.get("db_user_id")
     user_settings: dict[str, Any] | None = None
     if db_user_id is not None:
@@ -341,7 +317,7 @@ def _resolve_policy_mode_for_current_user(*, source: Any, content_type: Any) -> 
             user_settings = None
 
     effective = merge_request_policy_settings(global_settings, user_settings)
-    if not _as_bool(effective.get("REQUESTS_ENABLED"), False):
+    if not coerce_bool(effective.get("REQUESTS_ENABLED"), False):
         return None
 
     resolved_mode = resolve_policy_mode(
@@ -500,14 +476,45 @@ werkzeug_logger.setLevel(logger.level)
 werkzeug_logger.addFilter(LogNoiseFilter())
 
 # Set up authentication defaults
-# The secret key will reset every time we restart, which will
-# require users to authenticate again
 from shelfmark.config.env import SESSION_COOKIE_NAME, SESSION_COOKIE_SECURE_ENV, string_to_bool
 
 SESSION_COOKIE_SECURE = string_to_bool(SESSION_COOKIE_SECURE_ENV)
 
+
+def _load_or_create_secret_key() -> bytes:
+    """Load a persisted Flask secret key from config, or create one."""
+    secret_path = CONFIG_DIR / ".flask_secret"
+
+    try:
+        if secret_path.exists():
+            secret_key = secret_path.read_bytes()
+            if len(secret_key) >= 32:
+                return secret_key
+            logger.warning(
+                "Invalid persisted Flask secret key at %s (length=%s). Regenerating.",
+                secret_path,
+                len(secret_key),
+            )
+    except OSError as exc:
+        logger.warning("Failed to read Flask secret key at %s: %s", secret_path, exc)
+
+    secret_key = os.urandom(64)
+    try:
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+        secret_path.write_bytes(secret_key)
+        os.chmod(secret_path, 0o600)
+    except OSError as exc:
+        logger.warning(
+            "Failed to persist Flask secret key at %s. Sessions may reset on restart: %s",
+            secret_path,
+            exc,
+        )
+
+    return secret_key
+
+
 app.config.update(
-    SECRET_KEY = os.urandom(64),
+    SECRET_KEY = _load_or_create_secret_key(),
     SESSION_COOKIE_HTTPONLY = True,
     SESSION_COOKIE_SAMESITE = 'Lax',
     SESSION_COOKIE_SECURE = SESSION_COOKIE_SECURE,
@@ -1096,16 +1103,6 @@ def _resolve_status_scope(*, require_authenticated: bool = True) -> tuple[bool, 
     return False, db_user_id, True
 
 
-def _extract_release_source_id(release_data: Any) -> str | None:
-    if not isinstance(release_data, dict):
-        return None
-    source_id = release_data.get("source_id")
-    if not isinstance(source_id, str):
-        return None
-    normalized = source_id.strip()
-    return normalized or None
-
-
 def _queue_status_to_final_activity_status(status: QueueStatus) -> str | None:
     if status == QueueStatus.COMPLETE:
         return "complete"
@@ -1114,14 +1111,6 @@ def _queue_status_to_final_activity_status(status: QueueStatus) -> str | None:
     if status == QueueStatus.CANCELLED:
         return "cancelled"
     return None
-
-
-def _normalize_optional_text(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    return normalized or None
-
 
 def _queue_status_to_notification_event(status: QueueStatus) -> NotificationEvent | None:
     if status in {QueueStatus.COMPLETE, QueueStatus.AVAILABLE, QueueStatus.DONE}:
@@ -1142,17 +1131,17 @@ def _notify_admin_for_terminal_download_status(*, task_id: str, status: QueueSta
     except (TypeError, ValueError):
         owner_user_id = None
 
-    content_type = _normalize_optional_text(getattr(task, "content_type", None))
+    content_type = normalize_optional_text(getattr(task, "content_type", None))
     context = NotificationContext(
         event=event,
         title=str(getattr(task, "title", "Unknown title") or "Unknown title"),
         author=str(getattr(task, "author", "Unknown author") or "Unknown author"),
-        username=_normalize_optional_text(getattr(task, "username", None)),
+        username=normalize_optional_text(getattr(task, "username", None)),
         content_type=normalize_content_type(content_type) if content_type is not None else None,
-        format=_normalize_optional_text(getattr(task, "format", None)),
+        format=normalize_optional_text(getattr(task, "format", None)),
         source=normalize_source(getattr(task, "source", None)),
         error_message=(
-            _normalize_optional_text(getattr(task, "status_message", None))
+            normalize_optional_text(getattr(task, "status_message", None))
             if event == NotificationEvent.DOWNLOAD_FAILED
             else None
         ),
@@ -1199,7 +1188,7 @@ def _record_download_terminal_snapshot(task_id: str, status: QueueStatus, task: 
     if user_db is not None and owner_user_id is not None:
         fulfilled_rows = user_db.list_requests(user_id=owner_user_id, status="fulfilled")
         for row in fulfilled_rows:
-            source_id = _extract_release_source_id(row.get("release_data"))
+            source_id = extract_release_source_id(row.get("release_data"))
             if source_id == task_id:
                 linked_request = row
                 origin = "requested"
@@ -1293,7 +1282,7 @@ def _is_graduated_request_download(task_id: str, *, user_id: int) -> bool:
 
     fulfilled_rows = user_db.list_requests(user_id=user_id, status="fulfilled")
     for row in fulfilled_rows:
-        source_id = _extract_release_source_id(row.get("release_data"))
+        source_id = extract_release_source_id(row.get("release_data"))
         if source_id == task_id:
             return True
     return False
