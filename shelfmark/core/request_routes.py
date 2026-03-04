@@ -24,7 +24,6 @@ from shelfmark.core.requests_service import (
     fulfil_request,
     reject_request,
 )
-from shelfmark.core.activity_service import ActivityService, build_request_item_key
 from shelfmark.core.notifications import (
     NotificationContext,
     NotificationEvent,
@@ -34,7 +33,7 @@ from shelfmark.core.notifications import (
 from shelfmark.core.request_helpers import (
     coerce_bool,
     coerce_int,
-    extract_release_source_id,
+    emit_ws_event,
     load_users_request_policy_settings,
     normalize_optional_text,
 )
@@ -99,68 +98,6 @@ def _resolve_effective_policy(
     effective = merge_request_policy_settings(global_settings, user_settings)
     requests_enabled = coerce_bool(effective.get("REQUESTS_ENABLED"), False)
     return global_settings, user_settings, effective, requests_enabled
-
-
-def _emit_request_event(
-    ws_manager: Any,
-    *,
-    event_name: str,
-    payload: dict[str, Any],
-    room: str,
-) -> None:
-    if ws_manager is None:
-        return
-    try:
-        socketio = getattr(ws_manager, "socketio", None)
-        is_enabled = getattr(ws_manager, "is_enabled", None)
-        if socketio is None or not callable(is_enabled) or not is_enabled():
-            return
-        socketio.emit(event_name, payload, to=room)
-    except Exception as exc:
-        logger.warning(f"Failed to emit WebSocket event '{event_name}' to room '{room}': {exc}")
-
-
-def _record_terminal_request_snapshot(
-    activity_service: ActivityService | None,
-    *,
-    request_row: dict[str, Any],
-) -> None:
-    if activity_service is None:
-        return
-
-    request_status = request_row.get("status")
-    if request_status not in {"rejected", "cancelled"}:
-        return
-
-    raw_request_id = request_row.get("id")
-    try:
-        request_id = int(raw_request_id)
-    except (TypeError, ValueError):
-        return
-    if request_id < 1:
-        return
-
-    raw_user_id = request_row.get("user_id")
-    try:
-        user_id = int(raw_user_id)
-    except (TypeError, ValueError):
-        user_id = None
-
-    source_id = extract_release_source_id(request_row.get("release_data"))
-
-    try:
-        activity_service.record_terminal_snapshot(
-            user_id=user_id,
-            item_type="request",
-            item_key=build_request_item_key(request_id),
-            origin="request",
-            final_status=request_status,
-            snapshot={"kind": "request", "request": request_row},
-            request_id=request_id,
-            source_id=source_id,
-        )
-    except Exception as exc:
-        logger.warning("Failed to record terminal request snapshot for request %s: %s", request_id, exc)
 
 
 def _resolve_title_from_book_data(book_data: Any) -> str:
@@ -339,7 +276,6 @@ def register_request_routes(
     *,
     resolve_auth_mode: Callable[[], str],
     queue_release: Callable[..., tuple[bool, str | None]],
-    activity_service: ActivityService | None = None,
     ws_manager: Any | None = None,
 ) -> None:
     """Register request policy and request lifecycle routes."""
@@ -560,13 +496,13 @@ def register_request_routes(
             event_payload["title"],
             actor_label,
         )
-        _emit_request_event(
+        emit_ws_event(
             ws_manager,
             event_name="new_request",
             payload=event_payload,
             room="admins",
         )
-        _emit_request_event(
+        emit_ws_event(
             ws_manager,
             event_name="request_update",
             payload=event_payload,
@@ -626,8 +562,6 @@ def register_request_routes(
         except RequestServiceError as exc:
             return _error_response(str(exc), exc.status_code, code=exc.code)
 
-        _record_terminal_request_snapshot(activity_service, request_row=updated)
-
         event_payload = {
             "request_id": updated["id"],
             "status": updated["status"],
@@ -640,13 +574,13 @@ def register_request_routes(
             event_payload["title"],
             actor_label,
         )
-        _emit_request_event(
+        emit_ws_event(
             ws_manager,
             event_name="request_update",
             payload=event_payload,
             room=f"user_{db_user_id}",
         )
-        _emit_request_event(
+        emit_ws_event(
             ws_manager,
             event_name="request_update",
             payload=event_payload,
@@ -752,13 +686,13 @@ def register_request_routes(
             admin_label,
             requester_label,
         )
-        _emit_request_event(
+        emit_ws_event(
             ws_manager,
             event_name="request_update",
             payload=event_payload,
             room=f"user_{updated['user_id']}",
         )
-        _emit_request_event(
+        emit_ws_event(
             ws_manager,
             event_name="request_update",
             payload=event_payload,
@@ -803,8 +737,6 @@ def register_request_routes(
         except RequestServiceError as exc:
             return _error_response(str(exc), exc.status_code, code=exc.code)
 
-        _record_terminal_request_snapshot(activity_service, request_row=updated)
-
         event_payload = {
             "request_id": updated["id"],
             "status": updated["status"],
@@ -822,13 +754,13 @@ def register_request_routes(
             admin_label,
             requester_label,
         )
-        _emit_request_event(
+        emit_ws_event(
             ws_manager,
             event_name="request_update",
             payload=event_payload,
             room=f"user_{updated['user_id']}",
         )
-        _emit_request_event(
+        emit_ws_event(
             ws_manager,
             event_name="request_update",
             payload=event_payload,
