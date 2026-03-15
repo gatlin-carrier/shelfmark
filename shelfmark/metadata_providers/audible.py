@@ -271,6 +271,13 @@ class AudibleProvider(MetadataProvider):
             description="Search Audible by author name",
         ),
         TextSearchField(
+            key="series",
+            label="Series",
+            description="Browse a series in reading order",
+            suggestions_endpoint="/api/metadata/field-options?provider=audible&field=series",
+            suggestions_min_query_length=2,
+        ),
+        TextSearchField(
             key="title",
             label="Title",
             description="Search Audible by title",
@@ -289,13 +296,6 @@ class AudibleProvider(MetadataProvider):
             key="keywords",
             label="Keywords",
             description="Search Audible by keywords",
-        ),
-        TextSearchField(
-            key="series",
-            label="Series",
-            description="Browse a series in reading order",
-            suggestions_endpoint="/api/metadata/field-options?provider=audible&field=series",
-            suggestions_min_query_length=2,
         ),
     ]
     capabilities = [
@@ -764,12 +764,12 @@ class AudibleProvider(MetadataProvider):
 
         runtime_value = _format_runtime(item.get("lengthMinutes"))
         if runtime_value:
-            display_fields.append(DisplayField(label="Length", value=runtime_value, icon="book"))
+            display_fields.append(DisplayField(label="Length", value=runtime_value, icon="clock"))
 
         narrator_value = _format_narrator_value(narrators)
         if narrator_value:
             label = "Narrator" if len(narrators) == 1 else "Narrators"
-            display_fields.append(DisplayField(label=label, value=narrator_value, icon="users"))
+            display_fields.append(DisplayField(label=label, value=narrator_value, icon="microphone"))
 
         book_format = str(item.get("bookFormat") or "").strip()
         if book_format:
@@ -786,6 +786,7 @@ class AudibleProvider(MetadataProvider):
             isbn_10=isbn_10,
             isbn_13=isbn_13,
             cover_url=str(item.get("imageUrl") or "").strip() or None,
+            cover_aspect="square",
             description=_sanitize_description(item.get("description"))
             or _sanitize_description(item.get("summary")),
             publisher=str(item.get("publisher") or "").strip() or None,

@@ -1196,8 +1196,10 @@ export const ReleaseModal = ({
     const ratingsField = book.display_fields.find(f => f.icon === 'ratings');
     const usersField = book.display_fields.find(f => f.icon === 'users');
     const pagesField = book.display_fields.find(f => f.icon === 'book');
+    const lengthField = book.display_fields.find(f => f.icon === 'clock');
+    const narratorField = book.display_fields.find(f => f.icon === 'microphone');
 
-    return { starField, ratingsField, usersField, pagesField };
+    return { starField, ratingsField, usersField, pagesField, lengthField, narratorField };
   }, [book?.display_fields]);
 
   const getReleaseActionMode = useCallback(
@@ -1318,15 +1320,15 @@ export const ReleaseModal = ({
                   <img
                     src={book.preview}
                     alt=""
-                    width={46}
+                    width={book.cover_aspect === 'square' ? 68 : 46}
                     height={68}
-                    className="rounded-sm shadow-md object-cover object-top"
-                    style={{ width: 46, height: 68, minWidth: 46 }}
+                    className={`rounded-sm shadow-md object-cover ${book.cover_aspect === 'square' ? 'object-center' : 'object-top'}`}
+                    style={{ width: book.cover_aspect === 'square' ? 68 : 46, height: 68, minWidth: book.cover_aspect === 'square' ? 68 : 46 }}
                   />
                 ) : (
                   <div
                     className="rounded-sm border border-dashed border-(--border-muted) bg-(--bg)/60 flex items-center justify-center text-[7px] text-zinc-500"
-                    style={{ width: 46, height: 68, minWidth: 46 }}
+                    style={{ width: book.cover_aspect === 'square' ? 68 : 46, height: 68, minWidth: book.cover_aspect === 'square' ? 68 : 46 }}
                   >
                     No cover
                   </div>
@@ -1338,7 +1340,7 @@ export const ReleaseModal = ({
               <div
                 className="hidden sm:block shrink-0 overflow-hidden transition-[width,margin] duration-300 ease-out"
                 style={{
-                  width: showHeaderThumb ? 46 : 0,
+                  width: showHeaderThumb ? (book.cover_aspect === 'square' ? 68 : 46) : 0,
                   marginRight: showHeaderThumb ? 0 : -12,
                 }}
               >
@@ -1350,15 +1352,15 @@ export const ReleaseModal = ({
                     <img
                       src={book.preview}
                       alt=""
-                      width={46}
+                      width={book.cover_aspect === 'square' ? 68 : 46}
                       height={68}
-                      className="rounded-sm shadow-md object-cover object-top"
-                      style={{ width: 46, height: 68, minWidth: 46 }}
+                      className={`rounded-sm shadow-md object-cover ${book.cover_aspect === 'square' ? 'object-center' : 'object-top'}`}
+                      style={{ width: book.cover_aspect === 'square' ? 68 : 46, height: 68, minWidth: book.cover_aspect === 'square' ? 68 : 46 }}
                     />
                   ) : (
                     <div
                       className="rounded-sm border border-dashed border-(--border-muted) bg-(--bg)/60 flex items-center justify-center text-[7px] text-zinc-500"
-                      style={{ width: 46, height: 68, minWidth: 46 }}
+                      style={{ width: book.cover_aspect === 'square' ? 68 : 46, height: 68, minWidth: book.cover_aspect === 'square' ? 68 : 46 }}
                     >
                       No cover
                     </div>
@@ -1402,14 +1404,14 @@ export const ReleaseModal = ({
                   <img
                     src={book.preview}
                     alt="Book cover"
-                    className={`hidden sm:block rounded-lg shadow-md object-cover object-top shrink-0 ${book.series_name ? 'w-24 h-[144px]' : 'w-20 h-[120px]'}`}
+                    className={`hidden sm:block rounded-lg shadow-md object-cover shrink-0 ${book.cover_aspect === 'square' ? 'object-center' : 'object-top'} ${book.cover_aspect === 'square' ? (book.series_name ? 'w-[144px] h-[144px]' : 'w-[120px] h-[120px]') : (book.series_name ? 'w-24 h-[144px]' : 'w-20 h-[120px]')}`}
                   />
                 ) : (
-                  <div className={`hidden sm:flex rounded-lg border border-dashed border-(--border-muted) bg-(--bg)/60 items-center justify-center text-[10px] text-zinc-500 shrink-0 ${book.series_name ? 'w-24 h-[144px]' : 'w-20 h-[120px]'}`}>
+                  <div className={`hidden sm:flex rounded-lg border border-dashed border-(--border-muted) bg-(--bg)/60 items-center justify-center text-[10px] text-zinc-500 shrink-0 ${book.cover_aspect === 'square' ? (book.series_name ? 'w-[144px] h-[144px]' : 'w-[120px] h-[120px]') : (book.series_name ? 'w-24 h-[144px]' : 'w-20 h-[120px]')}`}>
                     No cover
                   </div>
                 )}
-                <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex-1 min-w-0 flex flex-col gap-2">
                   {/* Metadata row */}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
                     {book.year && <span>{book.year}</span>}
@@ -1432,6 +1434,22 @@ export const ReleaseModal = ({
                     )}
                     {displayFields?.pagesField && (
                       <span>{displayFields.pagesField.value} pages</span>
+                    )}
+                    {displayFields?.lengthField && (
+                      <span className="flex items-center gap-1">
+                        <svg className="h-3.5 w-3.5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                        </svg>
+                        {displayFields.lengthField.value}
+                      </span>
+                    )}
+                    {displayFields?.narratorField && (
+                      <span className="flex items-center gap-1">
+                        <svg className="h-3.5 w-3.5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
+                        </svg>
+                        {displayFields.narratorField.value}
+                      </span>
                     )}
                   </div>
 
@@ -1494,7 +1512,7 @@ export const ReleaseModal = ({
                   )}
 
                   {/* Links row */}
-                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-3 text-xs mt-auto">
                     {(book.isbn_13 || book.isbn_10) && (
                       <span className="text-zinc-500 dark:text-zinc-400">
                         ISBN: {book.isbn_13 || book.isbn_10}
