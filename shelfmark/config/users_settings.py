@@ -73,12 +73,19 @@ _SELF_SETTINGS_SECTION_VALUES = {option["value"] for option in _SELF_SETTINGS_SE
 _SELF_SETTINGS_SECTION_DEFAULTS = [option["value"] for option in _SELF_SETTINGS_SECTION_OPTIONS]
 _SEARCH_MODE_VALUES = {"direct", "universal"}
 _SEARCH_PREFERENCE_PROVIDER_KEYS = {"METADATA_PROVIDER", "METADATA_PROVIDER_AUDIOBOOK", "METADATA_PROVIDER_COMBINED"}
+_DUAL_DOWNLOAD_KEYS = {
+    "DUAL_DOWNLOAD_ENABLED",
+    "DUAL_DOWNLOAD_PREFERRED_FORMAT",
+    "DUAL_DOWNLOAD_FALLBACK_FORMAT",
+    "DUAL_DOWNLOAD_MAX_SIZE_MB",
+}
 _SEARCH_PREFERENCE_VALIDATABLE_KEYS = {
     "SEARCH_MODE",
     "DEFAULT_RELEASE_SOURCE",
     "DEFAULT_RELEASE_SOURCE_AUDIOBOOK",
     "SHOW_COMBINED_SELECTOR",
     *_SEARCH_PREFERENCE_PROVIDER_KEYS,
+    *_DUAL_DOWNLOAD_KEYS,
 }
 
 _USERS_HEADING_DESCRIPTION_BY_AUTH_MODE = {
@@ -220,6 +227,20 @@ def validate_search_preference_value(key: str, value: Any) -> tuple[Any, str | N
         if isinstance(value, bool):
             return value, None
         return bool(value), None
+
+    if key == "DUAL_DOWNLOAD_ENABLED":
+        if isinstance(value, bool):
+            return value, None
+        return bool(value), None
+
+    if key in {"DUAL_DOWNLOAD_PREFERRED_FORMAT", "DUAL_DOWNLOAD_FALLBACK_FORMAT"}:
+        return str(value).strip().lower() if value else "", None
+
+    if key == "DUAL_DOWNLOAD_MAX_SIZE_MB":
+        try:
+            return max(0, int(value)), None
+        except (TypeError, ValueError):
+            return 0, f"{key} must be a non-negative integer"
 
     return value, None
 
