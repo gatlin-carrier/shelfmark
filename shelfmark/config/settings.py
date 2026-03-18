@@ -185,6 +185,13 @@ _AUDIOBOOK_FORMAT_OPTIONS = [
     {"value": "rar", "label": "RAR"},
 ]
 
+_DUAL_DOWNLOAD_FORMAT_OPTIONS: list[dict[str, str]] = [
+    {"value": "", "label": "Any"},
+    *_FORMAT_OPTIONS,
+    # Add audiobook-only formats (skip zip/rar already in _FORMAT_OPTIONS)
+    *[opt for opt in _AUDIOBOOK_FORMAT_OPTIONS if opt["value"] not in {"zip", "rar"}],
+]
+
 _DOWNLOAD_TO_BROWSER_CONTENT_TYPE_OPTIONS = [
     {
         "value": "book",
@@ -467,6 +474,46 @@ def search_mode_settings():
                 "Metadata provider links stay enabled."
             ),
             default=True,
+        ),
+        HeadingField(
+            key="dual_download_heading",
+            title="Dual Download",
+            description="Automatically fetch and pre-select a complementary release (audiobook or ebook) when browsing releases.",
+            show_when={"field": "SEARCH_MODE", "value": "universal"},
+        ),
+        CheckboxField(
+            key="DUAL_DOWNLOAD_ENABLED",
+            label="Enable Dual Download",
+            description="When viewing ebook releases, also fetch audiobook releases (and vice versa) so you can download both at once.",
+            default=False,
+            show_when={"field": "SEARCH_MODE", "value": "universal"},
+            user_overridable=True,
+        ),
+        SelectField(
+            key="DUAL_DOWNLOAD_PREFERRED_FORMAT",
+            label="Preferred Complementary Format",
+            description="Preferred format for the auto-selected complementary release.",
+            options=_DUAL_DOWNLOAD_FORMAT_OPTIONS,
+            default="",
+            show_when={"field": "DUAL_DOWNLOAD_ENABLED", "value": True},
+            user_overridable=True,
+        ),
+        SelectField(
+            key="DUAL_DOWNLOAD_FALLBACK_FORMAT",
+            label="Fallback Complementary Format",
+            description="Fallback format if the preferred format is not available.",
+            options=_DUAL_DOWNLOAD_FORMAT_OPTIONS,
+            default="",
+            show_when={"field": "DUAL_DOWNLOAD_ENABLED", "value": True},
+            user_overridable=True,
+        ),
+        NumberField(
+            key="DUAL_DOWNLOAD_MAX_SIZE_MB",
+            label="Max Complementary File Size (MB)",
+            description="Maximum file size in MB for the auto-selected complementary release. Set to 0 for no limit.",
+            default=0,
+            show_when={"field": "DUAL_DOWNLOAD_ENABLED", "value": True},
+            user_overridable=True,
         ),
         HeadingField(
             key="universal_mode_heading",

@@ -263,6 +263,10 @@ export interface AppConfig {
   default_release_source?: string;  // Default tab in ReleaseModal (e.g., 'direct_download')
   default_release_source_audiobook?: string;  // Default tab in ReleaseModal for audiobooks
   show_release_source_links: boolean;
+  dual_download_enabled: boolean;
+  dual_download_preferred_format: string;
+  dual_download_fallback_format: string;
+  dual_download_max_size_mb: number;
   books_output_mode: BooksOutputMode;
   auto_open_downloads_sidebar: boolean;  // Auto-open sidebar when download is queued
   hardcover_auto_remove_on_download: boolean;  // Auto-remove from active Hardcover list on download
@@ -271,6 +275,12 @@ export interface AppConfig {
   onboarding_complete: boolean;  // Whether the user has completed initial setup
   default_sort: string;  // Default sort for direct mode
   metadata_default_sort: string;  // Default sort for universal mode (from metadata provider)
+}
+
+export interface DualDownloadConfig {
+  preferredFormat: string;
+  fallbackFormat: string;
+  maxSizeMb: number;
 }
 
 export interface MetadataProviderSummary {

@@ -15,6 +15,7 @@ import {
   MetadataSearchConfig,
   QueryTargetOption,
   SearchMode,
+  DualDownloadConfig,
   isMetadataBook,
 } from './types';
 import {
@@ -726,6 +727,17 @@ function App() {
   }, [isAuthenticated, loadConfig]);
 
   const effectiveSearchMode: SearchMode = config?.search_mode ?? 'direct';
+  // Dual download config (derived from app config)
+  const dualDownloadEnabled = Boolean(config?.dual_download_enabled) && effectiveSearchMode === 'universal';
+  const dualDownloadConfig = useMemo<DualDownloadConfig | undefined>(() => {
+    if (!dualDownloadEnabled || !config) return undefined;
+    return {
+      preferredFormat: config.dual_download_preferred_format || '',
+      fallbackFormat: config.dual_download_fallback_format || '',
+      maxSizeMb: config.dual_download_max_size_mb || 0,
+    };
+  }, [dualDownloadEnabled, config]);
+
   const defaultMetadataProviderForContentType = getConfiguredMetadataProviderForContentType({
     contentType,
     configuredMetadataProvider,
@@ -1486,6 +1498,29 @@ function App() {
 
     await executeReleaseDownload(book, release, releaseContentType);
   };
+
+  const handleDualDownload = useCallback(
+    async (
+      book: Book,
+      primaryRelease: Release,
+      primaryContentType: ContentType,
+      complementaryRelease: Release,
+      complementaryContentType: ContentType,
+    ): Promise<void> => {
+      policyTrace('dual_download:start', {
+        bookId: book.id,
+        primaryRelease: primaryRelease.source_id,
+        primaryContentType: toContentType(primaryContentType),
+        complementaryRelease: complementaryRelease.source_id,
+        complementaryContentType: toContentType(complementaryContentType),
+      });
+
+      // Download both releases sequentially
+      await executeReleaseDownload(book, primaryRelease, primaryContentType);
+      await executeReleaseDownload(book, complementaryRelease, complementaryContentType);
+    },
+    [executeReleaseDownload],
+  );
 
   const handleReleaseRequest = useCallback(
     async (book: Book, release: Release, releaseContentType: ContentType): Promise<void> => {
@@ -2272,6 +2307,9 @@ function App() {
             isRequestMode={isBrowseFulfilMode || activeReleaseBook?.provider === 'manual'}
             showReleaseSourceLinks={config?.show_release_source_links !== false}
             onShowToast={showToast}
+            dualDownloadEnabled={dualDownloadEnabled && !isBrowseFulfilMode}
+            dualDownloadConfig={dualDownloadConfig}
+            onDualDownload={handleDualDownload}
           />
         )}
 
